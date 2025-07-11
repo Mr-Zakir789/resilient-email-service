@@ -7,23 +7,21 @@ const EmailService = require("./emailService");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware to parse JSON request body
+// Required to parse JSON in POST body
 app.use(bodyParser.json());
 
-// Initialize the email service
+// Initialize your email service
 const emailService = new EmailService();
 
-// Route to handle POST /send-email
+// Correctly define the route
 app.post("/send-email", async (req, res) => {
   try {
     const { to, subject, body, messageId } = req.body;
 
-    // Validate required fields
     if (!to || !subject || !body || !messageId) {
       return res.status(400).json({ error: "Missing required fields." });
     }
 
-    // Send email via EmailService
     const result = await emailService.sendEmail({ to, subject, body, messageId });
 
     return res.status(200).json({
@@ -31,15 +29,13 @@ app.post("/send-email", async (req, res) => {
       result,
     });
   } catch (error) {
-    console.error("❌ Error in /send-email:", error.message);
     return res.status(500).json({
-      error: "Failed to process email",
+      error: "Internal server error",
       details: error.message,
     });
   }
 });
 
-// Start the server
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
 });
