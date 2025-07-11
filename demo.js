@@ -7,13 +7,12 @@ const EmailService = require("./emailService");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Required to parse JSON in POST body
 app.use(bodyParser.json());
 
-// Initialize your email service
+// Initialize email service (no need to pass providers, they're set by default)
 const emailService = new EmailService();
 
-// Correctly define the route
+// POST /send-email route
 app.post("/send-email", async (req, res) => {
   try {
     const { to, subject, body, messageId } = req.body;
@@ -24,12 +23,13 @@ app.post("/send-email", async (req, res) => {
 
     const result = await emailService.sendEmail({ to, subject, body, messageId });
 
-    return res.status(200).json({
+    res.status(200).json({
       message: "Email processed",
       result,
     });
   } catch (error) {
-    return res.status(500).json({
+    console.error("❌ Error:", error.message);
+    res.status(500).json({
       error: "Internal server error",
       details: error.message,
     });

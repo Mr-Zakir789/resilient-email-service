@@ -3,77 +3,54 @@
 const { ProviderA, ProviderB } = require("./providers");
 
 class EmailService {
-  constructor(providers) {
+  constructor(providers = [new ProviderA(), new ProviderB()]) {
     this.providers = providers;
-    this.idempotencyMap = new Map();
-    this.rateLimitCount = 0;
-    this.rateLimitMax = 5;
-    this.rateLimitWindow = 10000;
+    this.sentMessages = new Set(); // for idempotency
+    this.statusMap = new Map();    // for tracking
+    this.rateLimit = 5;            // max emails per window
+    this.windowTime = 60000;       // 1 minute
     this.queue = [];
-    this.circuitBreaker = new Map();
+    this.sentCount = 0;
 
-    setInterval(() => this.resetRateLimit(), this.rateLimitWindow);
-  }
-
-  resetRateLimit() {
-    this.rateLimitCount = 0;
-    this.processQueue();
-  }
-
-  delay(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    // Reset rate counter every window
+    setInterval(() => {
+      this.sentCount = 0;
+      this.processQueue();
+    }, this.windowTime);
   }
 
   async sendEmail(email) {
-    if (this.idempotencyMap.has(email.idempotencyKey)) {
-      return this.idempotencyMap.get(email.idempotencyKey);
+    const { messageId } = email;
+
+    if (this.sentMessages.has(messageId)) {
+      return { status: "duplicate", provider: null };
     }
 
-    if (this.rateLimitCount >= this.rateLimitMax) {
+    if (this.sentCount >= this.rateLimit) {
       this.queue.push(email);
-      return { status: "pending", attempts: 0 };
+      return { status: "queued", provider: null };
     }
 
-    this.rateLimitCount++;
-    const status = { status: "failed", attempts: 0 };
-
-    for (let provider of this.providers) {
-      const breaker = this.circuitBreaker.get(provider.name);
-
-      if (breaker?.open && Date.now() < breaker.retryAfter) {
-        continue;
+    for (const provider of this.providers) {
+      try {
+        const result = await provider.send(email);
+        this.sentMessages.add(messageId);
+        this.statusMap.set(messageId, { status: "success", provider: provider.name });
+        this.sentCount++;
+        return { status: "success", provider: provider.name };
+      } catch (err) {
+        console.log(`⚠️ ${provider.name} failed. Trying next...`);
       }
-
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          status.attempts++;
-          const sent = await provider.send(email);
-          if (sent) {
-            status.status = "sent";
-            status.lastProvider = provider.name;
-            this.idempotencyMap.set(email.idempotencyKey, status);
-            return status;
-          }
-        } catch (err) {
-          status.error = err.message;
-          await this.delay(2 ** attempt * 100);
-        }
-      }
-
-      this.circuitBreaker.set(provider.name, {
-        open: true,
-        retryAfter: Date.now() + 60000,
-      });
     }
 
-    this.idempotencyMap.set(email.idempotencyKey, status);
-    return status;
+    this.statusMap.set(messageId, { status: "failed", provider: null });
+    return { status: "failed", provider: null };
   }
 
   async processQueue() {
-    while (this.queue.length > 0 && this.rateLimitCount < this.rateLimitMax) {
+    while (this.queue.length > 0 && this.sentCount < this.rateLimit) {
       const email = this.queue.shift();
-      if (email) await this.sendEmail(email);
+      await this.sendEmail(email);
     }
   }
 }
