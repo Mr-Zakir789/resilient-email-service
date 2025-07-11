@@ -16,5 +16,3 @@ This is a simulated email delivery system built using plain JavaScript. It demon
 
 ---
 
-## 📁 Project Structure
-
